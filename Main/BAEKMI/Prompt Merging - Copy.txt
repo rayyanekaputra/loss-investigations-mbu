@@ -1,0 +1,158 @@
+import pandas as pd
+import os
+from datetime import datetime
+
+def process_monthly_sales(supplier_file, sales_file):
+    """Process and merge supplier data with sales data"""
+    # Read files
+    df_supplier = pd.read_excel(supplier_file)
+    df_sales = pd.read_excel(sales_file)
+    
+    # Create supplier mapping dictionary (lowercase for case-insensitive matching)
+    supplier_map = {
+        str(name).strip().lower(): supplier 
+        for name, supplier in zip(df_supplier['Nama Barang'], df_supplier['Pemasok'])
+    }
+    
+    # Match suppliers to sales data
+    df_sales['Pemasok'] = df_sales['Nama Barang'].apply(
+        lambda x: next(
+            (supplier for product, supplier in supplier_map.items() 
+             if str(x).strip().lower() in product),
+            None
+        )
+    )
+    
+    # Extract month and number from filename
+    base_name = os.path.basename(sales_file)
+    parts = base_name.split(' ')
+    number = parts[0]
+    month = parts[-1].replace('.xlsx', '')
+    
+    # Prepare output filename
+    output_file = f"./BAEKMI/{number}_merge_{month}.xlsx"
+    
+    # Export to Excel
+    with pd.ExcelWriter(output_file) as writer:
+        df_sales.to_excel(writer, sheet_name='Data Penjualan', index=False)
+        
+        # Add summary sheet
+        matched = df_sales['Pemasok'].notna().sum()
+        summary = pd.DataFrame({
+            'Metric': ['Total Rows', 'Matched Suppliers', 'Match Rate'],
+            'Value': [len(df_sales), matched, f"{matched/len(df_sales):.1%}"]
+        })
+        summary.to_excel(writer, sheet_name='Summary', index=False)
+    
+    print(f"Successfully processed and saved: {output_file}")
+    return output_file
+
+def find_matching_files(directory):
+    """Find matching supplier and sales files in directory"""
+    files = os.listdir(directory)
+    processed = set()
+    
+    for f in files:
+        if 'penjualan' in f.lower() and f.endswith('.xlsx'):
+            # Extract the number prefix (e.g., "01" from "01 penjualan januari.xlsx")
+            num = f.split(' ')[0]
+            
+            # Find matching supplier file
+            supplier_pattern = f"{num} supplier"
+            supplier_match = [x for x in files if supplier_pattern.lower() in x.lower()]
+            
+            if supplier_match:
+                supplier_file = os.path.join(directory, supplier_match[0])
+                sales_file = os.path.join(directory, f)
+                yield (supplier_file, sales_file)
+                processed.add(num)
+    
+    # Print any unmatched files
+    all_nums = {f.split(' ')[0] for f in files if f.endswith('.xlsx')}
+    unmatched = all_nums - processed
+    if unmatched:
+        print(f"\nWarning: No supplier file found for files with numbers: {', '.join(unmatched)}")
+
+# Main execution
+if __name__ == "__main__":
+    directory = "./BAEKMI"
+    
+    print("Starting automated sales-supplier matching...")
+    print(f"Processing files in: {directory}\n")
+    
+    results = []
+    for supplier_file, sales_file in find_matching_files(directory):
+        print(f"Processing:\n- Sales: {os.path.basename(sales_file)}\n- Supplier: {os.path.basename(supplier_file)}")
+        try:
+            output = process_monthly_sales(supplier_file, sales_file)
+            results.append(output)
+        except Exception as e:
+            print(f"Error processing {sales_file}: {str(e)}")
+    
+    print("\nProcessing complete. Files created:")
+    for r in results:
+        print(f"- {r}")
+
+i want you to understand whats going on here because later on i will ask you make a variation. yes or no if you understand
+
+----
+
+i want you to understand carefully on the partial string matching okay?
+
+----
+
+for you to remember, these are the dataset you will import
+
+df_penjualan= pd.read_excel("./BAEKMI/Penjualan2024.xlsx")
+df_beli = pd.read_excel("./Pembelian 2024 (19.05.25) Bu Dian.xlsx")
+
+df_penjualan.columns
+Nama Barang	Nomor #	Tanggal	Kode #	Kuantitas	Satuan	@Harga	Total Harga	Penjualan	Diskon	Laba	Nama Kategori Barang Barang & Jasa	Kena PPN	Bulan
+
+df_beli.columns
+Nomor #	Tanggal	Kode #	Nama Barang	Kts (Unit#1)	Kuantitas	Satuan	@Harga	Diskon	Diskon %	Diskon Faktur Pembelian	Diskon % Faktur Pembelian	Nama Pemasok Faktur Pembelian	Kena PPN	DPP Faktur Pembelian	UOM			
+
+here are your instructions on how to merge these 2 dataframes:
+
+1. merge by looking at Tanggal, Nama Barang, and Satuan. Tanggal is date, Nama Barang is item name, and Satuan is UOM. Nama Barang and UOM have to match, but for the date use the latest purchase of course. But the problem is Nama Barang on df_penjualan is corrupted. Thats why partial string matching is used on that feature specifically to match with Nama Barang in df_beli.
+2. you are left merging into df_penjualan, meaning youre not inner merging so all unmatched data is stil written
+3. if there are any empty data, let it be.
+4. other features in df_beli that is not Tanggal, Nama Barang, and Satuan, are renamed with suffix "Beli". other features df_penjualan that is not Tanggal, Nama Barang, and Satuan, are renamed with suffix "Jual"
+5. export as "./MergedPenjualanPembelianReport2024.xlsx"
+6. dont forget (df_beli['Nama Barang'].str.contains(jual_nama, na=False, regex=False)) just in case of escape string problem
+7. export it sort by 'Tanggal' then 'Nama Barang'. Or you could say, sort by the latest sell of an item
+8. be verbose by adding every single step with print statement so i could know it is still running.
+9. export with name "./MergedDianRayyan2024.xlsx"
+any question if youre confused? clarify now and ask now.
+
+----
+
+Clarifying Questions:
+
+Handling Duplicate Matches:
+If multiple rows in df_beli match the same df_penjualan row (e.g., same Tanggal/Satuan but multiple supplier entries for Nama Barang), should we:
+Take the first match (default behavior)?
+Concatenate the matches (e.g., join supplier names with |)?
+Or something else?
+--> Put in a new row, yes it makes sense to have different supplier for a purchase to happen in a day, its because we are adding stock by rushing.
+
+Date Format Consistency:
+Are Tanggal columns in both DataFrames guaranteed to have the same format (e.g., YYYY-MM-DD)? If not, should I standardize them?
+--> if you could make it date-month-year like 02 Mar 2024
+
+Partial Matching Strictness:
+Should the matching be case-sensitive? (Current code uses lowercase, but I can adjust.)
+Should we trim whitespace in Satuan/Tanggal too? (Currently only Nama Barang is trimmed.)
+--> case sensitive? yes
+--> trim whitespace? yes please, if it looks cleaner
+
+Column Conflicts:
+If both DataFrames have columns with identical names (e.g., Kode #), should we:
+Rename both (e.g., Kode #_Jual, Kode #_Beli)?
+Or assume they’re the same and merge them?
+--> Specifically for 'Kode #', put both in the first 2 column. so Kode #_Jual 1st col and Kode #_Beli 2nd col
+
+Performance:
+The datasets are large (full year of sales/purchases). Should I optimize for speed (e.g., vectorize operations) or prioritize readability?
+--> prioritize readability.
+
